@@ -2,7 +2,7 @@
 
 <img src="https://github-readme-stats.vercel.app/api?username=LasmGratel&theme=cobalt" alt="LasmGratel" />
 
-<img src="https://github-readme-stats.vercel.app/api/top-langs/?username=LasmGratel&theme=cobalt" alt="LasmGratel" />
+<img src="https://github-readme-stats.vercel.app/api/top-langs/?username=LasmGratel&theme=cobalt&hide=assembly,pascal,css,sourcepawn,nsis&exclude_repo=onscripter-jh" alt="LasmGratel" />
 
 <!--
 **Summpot/summpot** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
