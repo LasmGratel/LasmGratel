@@ -6,3 +6,4 @@ __pycache__/
 ga_best_path.png
 aco_best_path.png
 convergence_comparison.png
+mse_comparison.png

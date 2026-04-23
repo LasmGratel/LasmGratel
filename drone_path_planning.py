@@ -17,6 +17,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # 非交互后端，适合无显示环境
 import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 全局设置
@@ -99,12 +100,45 @@ class GeneticAlgorithm:
         """适应度 = 1 / 路径长度（越大越好）"""
         return 1.0 / path_length(individual, self.dist)
 
+    # ── 贪心最近邻启发解 ──────────────────────────────────────────────────────
+    def _greedy_nn_solution(self, start: int) -> list:
+        """
+        从 start 节点出发，每步选择最近的未访问节点，构造一条启发式路径。
+        用于为初始种群提供高质量个体，加快早期收敛，降低自身收敛MSE。
+        """
+        visited = [False] * self.n
+        path = [start]
+        visited[start] = True
+        for _ in range(self.n - 1):
+            cur = path[-1]
+            # 从未访问节点中选距离最近的
+            nearest = min(
+                (j for j in range(self.n) if not visited[j]),
+                key=lambda j: self.dist[cur][j],
+            )
+            path.append(nearest)
+            visited[nearest] = True
+        return path
+
     # ── 初始种群 ───────────────────────────────────────────────────────────────
     def _init_population(self) -> list:
-        """随机生成初始种群（每个个体是 0..n-1 的一个排列）"""
+        """
+        生成初始种群：
+          - 前 greedy_count 个个体由最近邻启发算法生成（不同起点），
+            使种群初始质量更好，早期收敛更快，自身收敛MSE更低；
+          - 其余个体随机生成，保持种群多样性。
+        """
+        greedy_count = max(1, self.pop_size // 5)  # 20% 为贪心启发解
         base = list(range(self.n))
         population = []
-        for _ in range(self.pop_size):
+
+        # 贪心启发解：用不同起点生成多样化的高质量个体
+        for i in range(greedy_count):
+            start = i % self.n
+            population.append(self._greedy_nn_solution(start))
+
+        # 随机解：保持种群多样性
+        for _ in range(self.pop_size - greedy_count):
             ind = base[:]
             random.shuffle(ind)
             population.append(ind)
@@ -464,6 +498,41 @@ def plot_convergence(
     print(f'  -> 已保存收敛曲线：{filename}')
 
 
+def plot_mse_comparison(
+    ga_self_mse: float,
+    aco_self_mse: float,
+    cross_mse: float,
+    filename: str,
+):
+    """
+    绘制三个 MSE 指标的柱状图（对数刻度），并标注具体数值
+    """
+    labels = ['GA自身MSE', 'ACO自身MSE', 'GA-ACO交叉MSE']
+    values = [ga_self_mse, aco_self_mse, cross_mse]
+    colors = ['tomato', 'steelblue', 'mediumseagreen']
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.bar(labels, values, color=colors, width=0.5)
+
+    # 每根柱子标注具体数值
+    for bar, val in zip(bars, values):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            val * 1.1,
+            f'{val:.2f}',
+            ha='center', va='bottom', fontsize=11, fontweight='bold',
+        )
+
+    ax.set_yscale('log')  # 对数刻度，适应数值差异较大的情况
+    ax.set_title('收敛曲线 MSE 对比（scikit-learn）', fontsize=14, fontweight='bold')
+    ax.set_ylabel('MSE（对数刻度）', fontsize=12)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.4)
+    plt.tight_layout()
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f'  -> 已保存 MSE 对比图：{filename}')
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # main
 # ──────────────────────────────────────────────────────────────────────────────
@@ -526,6 +595,21 @@ def main():
     print(f'寻优精度对比: {winner} 算法找到更优解，差距 {gap_pct:.2f}%')
     print('=' * 60)
 
+    # ── 5a. MSE 收敛质量分析
+    ga_self_mse = mean_squared_error([ga_history[-1]] * len(ga_history), ga_history)
+    aco_self_mse = mean_squared_error([aco_history[-1]] * len(aco_history), aco_history)
+    min_len = min(len(ga_history), len(aco_history))
+    cross_mse = mean_squared_error(ga_history[:min_len], aco_history[:min_len])
+
+    print('-' * 60)
+    print('【MSE 收敛质量分析（基于 scikit-learn）】')
+    print(f'GA  自身收敛MSE（与最终值偏差）：{ga_self_mse:>14.2f}')
+    print(f'ACO 自身收敛MSE（与最终值偏差）：{aco_self_mse:>14.2f}')
+    print('  -> 自身MSE越小，说明算法收敛越平稳、波动越小')
+    print(f'GA vs ACO 交叉MSE（两曲线差异）：{cross_mse:>14.2f}')
+    print('  -> 交叉MSE反映两算法整体收敛路径的差异程度')
+    print('-' * 60)
+
     # ── 5. 分析结论
     # 收敛速度：比较前50代下降幅度
     def early_drop_ratio(history, early=50):
@@ -559,6 +643,13 @@ def main():
         'GA 的 PMX 交叉能较好保持排列有效性，'
         '变异率过高则破坏良好个体，建议保持在 0.05~0.15 之间。'
     )
+    stable_winner = 'GA' if ga_self_mse < aco_self_mse else 'ACO'
+    cross_level = '较大' if cross_mse > max(ga_self_mse, aco_self_mse) else '较小'
+    print(
+        f'4. MSE收敛质量：GA自身MSE为 {ga_self_mse:.2f}，ACO自身MSE为 {aco_self_mse:.2f}。\n'
+        f'   {stable_winner} 算法自身MSE更小，说明其收敛过程更稳定，路径长度波动更小；\n'
+        f'   两算法交叉MSE为 {cross_mse:.2f}，反映两者整体收敛轨迹存在{cross_level}差异。'
+    )
     print('=' * 60)
 
     # ── 6. 生成图表
@@ -566,6 +657,7 @@ def main():
     plot_path(coords, ga_path,  '遗传算法(GA) 最优巡检路径',  'ga_best_path.png',  ga_dist)
     plot_path(coords, aco_path, '蚁群算法(ACO) 最优巡检路径', 'aco_best_path.png', aco_dist)
     plot_convergence(ga_history, aco_history, 'convergence_comparison.png')
+    plot_mse_comparison(ga_self_mse, aco_self_mse, cross_mse, 'mse_comparison.png')
     print('\n所有图表已保存完毕。')
 
 
