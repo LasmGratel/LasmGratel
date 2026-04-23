@@ -100,12 +100,45 @@ class GeneticAlgorithm:
         """适应度 = 1 / 路径长度（越大越好）"""
         return 1.0 / path_length(individual, self.dist)
 
+    # ── 贪心最近邻启发解 ──────────────────────────────────────────────────────
+    def _greedy_nn_solution(self, start: int) -> list:
+        """
+        从 start 节点出发，每步选择最近的未访问节点，构造一条启发式路径。
+        用于为初始种群提供高质量个体，加快早期收敛，降低自身收敛MSE。
+        """
+        visited = [False] * self.n
+        path = [start]
+        visited[start] = True
+        for _ in range(self.n - 1):
+            cur = path[-1]
+            # 从未访问节点中选距离最近的
+            nearest = min(
+                (j for j in range(self.n) if not visited[j]),
+                key=lambda j: self.dist[cur][j],
+            )
+            path.append(nearest)
+            visited[nearest] = True
+        return path
+
     # ── 初始种群 ───────────────────────────────────────────────────────────────
     def _init_population(self) -> list:
-        """随机生成初始种群（每个个体是 0..n-1 的一个排列）"""
+        """
+        生成初始种群：
+          - 前 greedy_count 个个体由最近邻启发算法生成（不同起点），
+            使种群初始质量更好，早期收敛更快，自身收敛MSE更低；
+          - 其余个体随机生成，保持种群多样性。
+        """
+        greedy_count = max(1, self.pop_size // 5)  # 20% 为贪心启发解
         base = list(range(self.n))
         population = []
-        for _ in range(self.pop_size):
+
+        # 贪心启发解：用不同起点生成多样化的高质量个体
+        for i in range(greedy_count):
+            start = i % self.n
+            population.append(self._greedy_nn_solution(start))
+
+        # 随机解：保持种群多样性
+        for _ in range(self.pop_size - greedy_count):
             ind = base[:]
             random.shuffle(ind)
             population.append(ind)
