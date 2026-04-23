@@ -1,0 +1,8 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Generated output images
+ga_best_path.png
+aco_best_path.png
+convergence_comparison.png
